@@ -11,21 +11,23 @@ class FileManifestSerializer(serializers.ModelSerializer):
 
 
 class SignatureSerializer(serializers.ModelSerializer):
+    signed_by_username = serializers.SerializerMethodField()
+
     class Meta:
         model = Signature
         fields = [
             "id",
             "signed_by_user",
-            "file",
-            "submission",
-            "evaluation",
-            "key",
+            "signed_by_username",
             "signature_algorithm",
             "signature_value",
             "signed_payload_sha256",
             "created_at",
         ]
-        read_only_fields = ["id", "signed_by_user", "created_at"]
+        read_only_fields = fields
+
+    def get_signed_by_username(self, obj) -> str | None:
+        return obj.signed_by_user.get_username() if obj.signed_by_user else None
 
 
 class EncryptedFileKeySerializer(serializers.ModelSerializer):
@@ -45,8 +47,8 @@ class EncryptedFileKeySerializer(serializers.ModelSerializer):
 
 
 class SecureFileSerializer(serializers.ModelSerializer):
-    manifest = FileManifestSerializer(required=False)
-    encrypted_keys = EncryptedFileKeySerializer(many=True, required=False)
+    manifest = serializers.SerializerMethodField()
+    signatures = SignatureSerializer(many=True, read_only=True)
 
     class Meta:
         model = SecureFile
@@ -68,18 +70,13 @@ class SecureFileSerializer(serializers.ModelSerializer):
             "schema_version",
             "created_at",
             "manifest",
-            "encrypted_keys",
+            "signatures",
         ]
         read_only_fields = ["id", "owner", "created_at"]
 
-    def create(self, validated_data):
-        manifest_data = validated_data.pop("manifest", None)
-        encrypted_keys_data = validated_data.pop("encrypted_keys", [])
-        validated_data.pop("owner", None)
-        request = self.context["request"]
-        secure_file = SecureFile.objects.create(owner=request.user, **validated_data)
-        if manifest_data:
-            FileManifest.objects.create(file=secure_file, **manifest_data)
-        for encrypted_key in encrypted_keys_data:
-            EncryptedFileKey.objects.create(file=secure_file, created_by=request.user, **encrypted_key)
-        return secure_file
+    def get_manifest(self, obj):
+        try:
+            m = obj.manifest
+            return {"manifest_json": m.manifest_json, "manifest_sha256": m.manifest_sha256}
+        except FileManifest.DoesNotExist:
+            return None

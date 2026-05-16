@@ -10,11 +10,10 @@ class AssignmentSerializer(serializers.ModelSerializer):
             "id",
             "course",
             "title",
-            "description_ciphertext",
+            "description",
             "submission_deadline",
-            "rubric_release_at",
+            "is_active",
             "created_by",
             "created_at",
         ]
         read_only_fields = ["id", "created_by", "created_at"]
-

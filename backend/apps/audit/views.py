@@ -1,13 +1,18 @@
 from rest_framework.viewsets import ReadOnlyModelViewSet
 
-from common.permissions import HasRolePermission
 from .models import AuditLog
 from .serializers import AuditLogSerializer
 
 
 class AuditLogViewSet(ReadOnlyModelViewSet):
-    queryset = AuditLog.objects.select_related("actor_user")
     serializer_class = AuditLogSerializer
-    permission_classes = [HasRolePermission]
-    required_roles = {"course_admin", "system_admin"}
 
+    def get_queryset(self):
+        user = self.request.user
+        is_admin = user.role_assignments.filter(
+            role__name__in=["course_admin", "system_admin"],
+            revoked_at__isnull=True,
+        ).exists()
+        if is_admin:
+            return AuditLog.objects.select_related("actor_user").order_by("created_at")
+        return AuditLog.objects.filter(actor_user=user).select_related("actor_user").order_by("created_at")
