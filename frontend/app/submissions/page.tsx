@@ -13,6 +13,10 @@ import {
   decryptFile,
 } from "@/lib/crypto/crypto-service";
 import type { EncryptedPayload } from "@/lib/crypto/types";
+import {
+  Upload, Download, ShieldAlert, FileUp, CheckCircle2,
+  Loader2, AlertCircle, Lock,
+} from "lucide-react";
 
 interface Assignment {
   id: number;
@@ -41,16 +45,8 @@ interface DownloadResponse {
   plaintext_sha256: string;
   aes_gcm_iv: string;
   aes_gcm_tag: string;
-  wrapped_key: {
-    wrapped_key_ciphertext: string;
-    recipient_key_fingerprint: string;
-  };
-  signature: {
-    signature_algorithm: string;
-    signature_value: string;
-    signed_by: string;
-    signing_key_fingerprint: string;
-  } | null;
+  wrapped_key: { wrapped_key_ciphertext: string; recipient_key_fingerprint: string };
+  signature: { signature_algorithm: string; signature_value: string; signed_by: string; signing_key_fingerprint: string } | null;
   manifest: { manifest_json: Record<string, unknown>; manifest_sha256: string } | null;
 }
 
@@ -58,6 +54,12 @@ function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
   return `${(n / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+function fileTypeLabel(t: string) {
+  if (t === "student_submission") return "Submission";
+  if (t === "rubric") return "Rubric";
+  return t;
 }
 
 export default function SubmissionsPage() {
@@ -70,10 +72,13 @@ export default function SubmissionsPage() {
   const [uploadStatus, setUploadStatus] = useState<"idle" | "encrypting" | "uploading" | "done" | "error">("idle");
   const [uploadMsg, setUploadMsg] = useState("");
   const [downloadStatus, setDownloadStatus] = useState<Record<number, string>>({});
+  const [dragOver, setDragOver] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const isExaminer = user?.roles.some((r) => ["examiner", "project_evaluator", "course_admin", "system_admin"].includes(r)) ?? false;
+  const isExaminer = user?.roles.some((r) =>
+    ["examiner", "project_evaluator", "course_admin", "system_admin"].includes(r)
+  ) ?? false;
 
   useEffect(() => {
     if (!accessToken) return;
@@ -82,10 +87,7 @@ export default function SubmissionsPage() {
       .then((d) => setAssignments(d.results ?? (d as unknown as Assignment[])))
       .catch(console.error);
     authedRequest<{ results: FileRecord[] } | FileRecord[]>("/files/", accessToken)
-      .then((d) => {
-        const arr = Array.isArray(d) ? d : (d as { results: FileRecord[] }).results ?? [];
-        setFiles(arr);
-      })
+      .then((d) => setFiles(Array.isArray(d) ? d : (d as { results: FileRecord[] }).results ?? []))
       .catch(console.error);
   }, [accessToken]);
 
@@ -101,7 +103,7 @@ export default function SubmissionsPage() {
     }
 
     setUploadStatus("encrypting");
-    setUploadMsg("Encrypting file with AES-256-GCM…");
+    setUploadMsg("Encrypting with AES-256-GCM…");
 
     try {
       const keyInfo = getStoredKeyInfo()!;
@@ -117,14 +119,11 @@ export default function SubmissionsPage() {
 
       const { payload: encPayload, rawAesKey } = await encryptFile(file, aad);
 
-      // Wrap AES key for self (student can decrypt own file)
       const myKeys = await authedRequest<{ id: number; public_key_pem: string; key_type: string }[]>(
-        `/keys/for-user/${user!.id}/`,
-        accessToken,
+        `/keys/for-user/${user!.id}/`, accessToken,
       );
       const myEncKey = myKeys.find((k) => k.key_type === "rsa_oaep_encryption");
 
-      // Wrap AES key for: (1) the uploader, (2) all registered examiners/admins
       const wrappedKeys: { recipient_user_id: number; recipient_key_id: number; wrapped_key_ciphertext: string }[] = [];
 
       if (myEncKey) {
@@ -132,20 +131,16 @@ export default function SubmissionsPage() {
         wrappedKeys.push({ recipient_user_id: user!.id, recipient_key_id: myEncKey.id, wrapped_key_ciphertext: wrapped });
       }
 
-      // Fetch and wrap for all examiner keys registered on the server
       try {
         const examinerKeys = await authedRequest<{ id: number; user: number; public_key_pem: string }[]>(
-          "/keys/examiner-keys/",
-          accessToken,
+          "/keys/examiner-keys/", accessToken,
         );
         for (const ek of examinerKeys) {
-          if (ek.user === user!.id) continue; // already wrapped for self above
+          if (ek.user === user!.id) continue;
           const wrapped = await wrapAesKey(rawAesKey, ek.public_key_pem);
           wrappedKeys.push({ recipient_user_id: ek.user, recipient_key_id: ek.id, wrapped_key_ciphertext: wrapped });
         }
-      } catch {
-        // No examiner keys registered yet — continue with uploader-only wrap
-      }
+      } catch { /* No examiner keys registered yet */ }
 
       const manifest = {
         filename: file.name,
@@ -177,15 +172,8 @@ export default function SubmissionsPage() {
         mime_type: file.type || "application/octet-stream",
         size_bytes: file.size,
         encrypted_filename: { encrypted: false, filename: file.name },
-        manifest: {
-          manifest_json: signed.manifest,
-          manifest_sha256: signed.manifestSha256,
-        },
-        signature: {
-          signing_key_id: keyInfo.signingKeyId,
-          signature_value: signed.signatureValue,
-          signed_payload_sha256: signed.manifestSha256,
-        },
+        manifest: { manifest_json: signed.manifest, manifest_sha256: signed.manifestSha256 },
+        signature: { signing_key_id: keyInfo.signingKeyId, signature_value: signed.signatureValue, signed_payload_sha256: signed.manifestSha256 },
         wrapped_keys: wrappedKeys,
       };
 
@@ -194,16 +182,13 @@ export default function SubmissionsPage() {
       formData.append("metadata", JSON.stringify(metadata));
 
       const result = await authedMultipartRequest<{ id: number; ciphertext_sha256: string }>(
-        "/files/upload/",
-        accessToken,
-        formData,
+        "/files/upload/", accessToken, formData,
       );
 
       setUploadStatus("done");
-      setUploadMsg(`Uploaded. File ID: ${result.id} | Ciphertext SHA-256: ${result.ciphertext_sha256.slice(0, 16)}…`);
+      setUploadMsg(`File ID: ${result.id} · SHA-256: ${result.ciphertext_sha256.slice(0, 16)}…`);
       if (fileInputRef.current) fileInputRef.current.value = "";
 
-      // Refresh file list
       const updated = await authedRequest<{ results: FileRecord[] } | FileRecord[]>("/files/", accessToken);
       setFiles(Array.isArray(updated) ? updated : (updated as { results: FileRecord[] }).results ?? []);
     } catch (err) {
@@ -218,7 +203,6 @@ export default function SubmissionsPage() {
 
     try {
       const data = await authedRequest<DownloadResponse>(`/files/${fileId}/download/`, accessToken);
-
       setDownloadStatus((s) => ({ ...s, [fileId]: "Unwrapping AES key…" }));
 
       const { encryptionPrivKey } = await getPrivateKeysOrThrow();
@@ -239,7 +223,6 @@ export default function SubmissionsPage() {
       };
 
       const plaintext = await decryptFile(payload, aesKey);
-
       const blob = new Blob([plaintext], { type: data.mime_type });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -248,8 +231,8 @@ export default function SubmissionsPage() {
       a.click();
       URL.revokeObjectURL(url);
 
-      const sigNote = data.signature ? ` | Signed by ${data.signature.signed_by}` : "";
-      setDownloadStatus((s) => ({ ...s, [fileId]: `Decrypted successfully${sigNote}` }));
+      const sigNote = data.signature ? ` · Signed by ${data.signature.signed_by}` : "";
+      setDownloadStatus((s) => ({ ...s, [fileId]: `✓ Decrypted${sigNote}` }));
     } catch (err) {
       setDownloadStatus((s) => ({
         ...s,
@@ -258,107 +241,213 @@ export default function SubmissionsPage() {
     }
   }
 
+  const uploading = uploadStatus === "encrypting" || uploadStatus === "uploading";
+
   return (
     <AppShell>
-      <div className="stack">
-        <h2>Submissions</h2>
+      <div className="page-container">
+        {/* Header */}
+        <div style={{ marginBottom: 28 }}>
+          <h1 style={{ fontSize: 22, fontWeight: 700, color: "var(--text-primary)", margin: "0 0 6px" }}>
+            Submissions
+          </h1>
+          <p style={{ color: "var(--text-muted)", fontSize: 14, margin: 0 }}>
+            {isExaminer
+              ? "All student submissions — decrypt locally in your browser using your RSA private key."
+              : "Upload encrypted submissions. Your file is encrypted in the browser before it reaches the server."}
+          </p>
+        </div>
 
         {!hasKeys && hasKeys !== null && (
-          <div className="panel" style={{ borderColor: "var(--danger)", background: "#fff5f5" }}>
-            <strong style={{ color: "var(--danger)" }}>No key pair found.</strong>{" "}
-            <a href="/keys" style={{ color: "var(--accent)" }}>Go to Keys page</a> to generate and register your RSA key pair before uploading.
+          <div className="alert alert-warning" style={{ marginBottom: 20 }}>
+            <ShieldAlert size={14} />
+            No RSA key pair found.{" "}
+            <a href="/keys" style={{ color: "var(--warning)", fontWeight: 600, textDecoration: "underline" }}>
+              Generate keys →
+            </a>
           </div>
         )}
 
+        {/* Upload panel — students only */}
         {!isExaminer && (
-          <section className="panel stack">
-            <h3>Upload Encrypted Submission</h3>
-            <p className="muted" style={{ fontSize: "0.9em" }}>
-              Your file is encrypted with AES-256-GCM in the browser. Only ciphertext reaches the server. A manifest is signed with RSA-PSS.
-            </p>
-            <label className="stack" style={{ fontSize: "0.9em" }}>
-              Assignment
-              <select
-                className="input"
-                value={selectedAssignment ?? ""}
-                onChange={(e) => setSelectedAssignment(Number(e.target.value) || null)}
+          <div className="card" style={{ marginBottom: 20 }}>
+            <div className="card-header">
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <Upload size={15} color="var(--accent)" />
+                <span style={{ fontSize: 14, fontWeight: 600, color: "var(--text-primary)" }}>
+                  Upload Encrypted Submission
+                </span>
+              </div>
+              <div style={{ display: "flex", gap: 6 }}>
+                <span className="crypto-tag">AES-256-GCM</span>
+                <span className="crypto-tag">RSA-PSS</span>
+              </div>
+            </div>
+            <div className="card-body">
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", display: "block", marginBottom: 6 }}>
+                    Assignment
+                  </label>
+                  <select
+                    className="form-input"
+                    value={selectedAssignment ?? ""}
+                    onChange={(e) => setSelectedAssignment(Number(e.target.value) || null)}
+                  >
+                    <option value="">Select assignment…</option>
+                    {assignments.map((a) => (
+                      <option key={a.id} value={a.id}>{a.title}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", display: "block", marginBottom: 6 }}>
+                    File
+                  </label>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    className="form-input"
+                    style={{ cursor: "pointer" }}
+                  />
+                </div>
+              </div>
+
+              <div
+                className="file-drop-zone"
+                style={dragOver ? { borderColor: "var(--accent)", background: "var(--accent-light)" } : {}}
+                onClick={() => fileInputRef.current?.click()}
+                onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+                onDragLeave={() => setDragOver(false)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setDragOver(false);
+                  if (e.dataTransfer.files[0] && fileInputRef.current) {
+                    const dt = new DataTransfer();
+                    dt.items.add(e.dataTransfer.files[0]);
+                    fileInputRef.current.files = dt.files;
+                  }
+                }}
               >
-                <option value="">Select assignment…</option>
-                {assignments.map((a) => (
-                  <option key={a.id} value={a.id}>{a.title}</option>
-                ))}
-              </select>
-            </label>
-            <label className="stack" style={{ fontSize: "0.9em" }}>
-              File (PDF, DOCX, ZIP…)
-              <input ref={fileInputRef} type="file" className="input" />
-            </label>
-            <button
-              className="button"
-              style={{ width: "fit-content" }}
-              disabled={uploadStatus === "encrypting" || uploadStatus === "uploading"}
-              onClick={() => void handleUpload()}
-            >
-              {uploadStatus === "encrypting"
-                ? "Encrypting…"
-                : uploadStatus === "uploading"
-                  ? "Uploading…"
-                  : "Encrypt and Upload"}
-            </button>
-            {uploadMsg && (
-              <p style={{ fontSize: "0.88em", color: uploadStatus === "error" ? "var(--danger)" : "var(--muted)" }}>
-                {uploadMsg}
-              </p>
-            )}
-          </section>
+                <FileUp size={20} color="var(--text-muted)" style={{ marginBottom: 6 }} />
+                <div style={{ fontSize: 13, color: "var(--text-muted)" }}>
+                  Drop file here or <span style={{ color: "var(--accent)", fontWeight: 600 }}>browse</span>
+                </div>
+                <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
+                  PDF, DOCX, ZIP, any format supported
+                </div>
+              </div>
+
+              <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 16 }}>
+                <button
+                  className="btn btn-primary"
+                  disabled={uploading}
+                  onClick={() => void handleUpload()}
+                >
+                  {uploading && <Loader2 size={14} className="spinner" />}
+                  <Lock size={13} />
+                  {uploadStatus === "encrypting"
+                    ? "Encrypting…"
+                    : uploadStatus === "uploading"
+                      ? "Uploading…"
+                      : "Encrypt & Upload"}
+                </button>
+
+                {uploadMsg && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
+                    {uploadStatus === "done" && <CheckCircle2 size={13} color="var(--success)" />}
+                    {uploadStatus === "error" && <AlertCircle size={13} color="var(--danger)" />}
+                    {uploading && <Loader2 size={13} className="spinner" color="var(--text-muted)" />}
+                    <span style={{ color: uploadStatus === "error" ? "var(--danger)" : "var(--text-muted)" }}>
+                      {uploadMsg}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
         )}
 
-        <section className="panel stack">
-          <h3>{isExaminer ? "All Submissions" : "Your Uploaded Files"}</h3>
-          {files.length === 0 ? (
-            <p className="muted">No files available yet.</p>
-          ) : (
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.9em" }}>
-              <thead>
-                <tr style={{ borderBottom: "1px solid var(--border)" }}>
-                  <th style={{ textAlign: "left", padding: "8px 12px 8px 0", color: "var(--muted)" }}>ID</th>
-                  <th style={{ textAlign: "left", padding: "8px 12px 8px 0", color: "var(--muted)" }}>Type</th>
-                  <th style={{ textAlign: "left", padding: "8px 12px 8px 0", color: "var(--muted)" }}>MIME</th>
-                  <th style={{ textAlign: "left", padding: "8px 12px 8px 0", color: "var(--muted)" }}>Size</th>
-                  <th style={{ textAlign: "left", padding: "8px 12px 8px 0", color: "var(--muted)" }}>SHA-256 (cipher)</th>
-                  <th style={{ textAlign: "left", padding: "8px 12px 8px 0", color: "var(--muted)" }}>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {files.map((f) => (
-                  <tr key={f.id} style={{ borderBottom: "1px solid var(--border)" }}>
-                    <td style={{ padding: "8px 12px 8px 0" }}>{f.id}</td>
-                    <td style={{ padding: "8px 12px 8px 0" }}>{f.file_type}</td>
-                    <td style={{ padding: "8px 12px 8px 0" }}>{f.mime_type}</td>
-                    <td style={{ padding: "8px 12px 8px 0" }}>{formatBytes(f.size_bytes)}</td>
-                    <td style={{ padding: "8px 12px 8px 0", fontFamily: "monospace", fontSize: "0.8em" }}>
-                      {f.ciphertext_sha256.slice(0, 20)}…
-                    </td>
-                    <td style={{ padding: "8px 12px 8px 0" }}>
-                      <div className="stack" style={{ gap: "4px" }}>
-                        <button
-                          className="button"
-                          style={{ fontSize: "0.8em", padding: "4px 10px" }}
-                          onClick={() => void handleDownload(f.id)}
-                        >
-                          Decrypt + Download
-                        </button>
-                        {downloadStatus[f.id] && (
-                          <p style={{ fontSize: "0.78em", color: "var(--muted)", margin: 0 }}>{downloadStatus[f.id]}</p>
-                        )}
-                      </div>
-                    </td>
+        {/* Files table */}
+        <div className="card">
+          <div className="card-header">
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <Download size={15} color="var(--text-muted)" />
+              <span style={{ fontSize: 14, fontWeight: 600, color: "var(--text-primary)" }}>
+                {isExaminer ? "All Submissions" : "Your Files"}
+              </span>
+              {files.length > 0 && (
+                <span className="badge-blue" style={{ fontVariantNumeric: "tabular-nums" }}>{files.length}</span>
+              )}
+            </div>
+          </div>
+          <div className="card-body" style={{ padding: 0 }}>
+            {files.length === 0 ? (
+              <div className="empty-state">
+                <FileUp size={28} color="var(--text-muted)" />
+                <div style={{ fontWeight: 600, color: "var(--text-secondary)", marginTop: 12 }}>No files yet</div>
+                <div style={{ fontSize: 13, color: "var(--text-muted)" }}>
+                  {isExaminer ? "Student submissions will appear here." : "Upload your first encrypted submission above."}
+                </div>
+              </div>
+            ) : (
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Type</th>
+                    <th>MIME</th>
+                    <th>Size</th>
+                    <th>Ciphertext SHA-256</th>
+                    <th>Uploaded</th>
+                    <th>Action</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </section>
+                </thead>
+                <tbody>
+                  {files.map((f) => (
+                    <tr key={f.id}>
+                      <td><code style={{ fontSize: 12 }}>{f.id}</code></td>
+                      <td>
+                        <span className={f.file_type === "rubric" ? "badge-purple" : "badge-blue"}>
+                          {fileTypeLabel(f.file_type)}
+                        </span>
+                      </td>
+                      <td style={{ color: "var(--text-muted)", fontSize: 12 }}>{f.mime_type}</td>
+                      <td>{formatBytes(f.size_bytes)}</td>
+                      <td><span className="hash-short">{f.ciphertext_sha256.slice(0, 18)}…</span></td>
+                      <td style={{ color: "var(--text-muted)", fontSize: 12, whiteSpace: "nowrap" }}>
+                        {new Date(f.created_at).toLocaleDateString()}
+                      </td>
+                      <td>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                          <button
+                            className="btn btn-secondary btn-sm"
+                            onClick={() => void handleDownload(f.id)}
+                          >
+                            <Download size={11} />
+                            Decrypt
+                          </button>
+                          {downloadStatus[f.id] && (
+                            <span style={{
+                              fontSize: 11,
+                              color: downloadStatus[f.id].startsWith("✓")
+                                ? "var(--success)"
+                                : downloadStatus[f.id].includes("failed") || downloadStatus[f.id].includes("Error")
+                                  ? "var(--danger)"
+                                  : "var(--text-muted)",
+                            }}>
+                              {downloadStatus[f.id]}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
       </div>
     </AppShell>
   );

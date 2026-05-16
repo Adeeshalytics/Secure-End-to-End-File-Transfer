@@ -36,6 +36,25 @@ class UserPublicKeyViewSet(ModelViewSet):
         )
         return Response(self.get_serializer(keys, many=True).data)
 
+    @action(detail=False, methods=["get"], url_path="student-keys")
+    def student_keys(self, request):
+        """
+        Return active RSA-OAEP encryption public keys for all student users who have registered keys.
+        Used by examiners to wrap rubric AES keys so students can decrypt them.
+        """
+        student_user_ids = list(
+            User.objects.filter(
+                role_assignments__role__name="student",
+                role_assignments__revoked_at__isnull=True,
+            ).values_list("id", flat=True).distinct()
+        )
+        keys = UserPublicKey.objects.filter(
+            user_id__in=student_user_ids,
+            key_type=UserPublicKey.KeyType.RSA_OAEP_ENCRYPTION,
+            status=UserPublicKey.Status.ACTIVE,
+        ).select_related("user")
+        return Response(self.get_serializer(keys, many=True).data)
+
     @action(detail=False, methods=["get"], url_path="examiner-keys")
     def examiner_keys(self, request):
         """
