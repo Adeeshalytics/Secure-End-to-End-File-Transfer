@@ -22,10 +22,16 @@ interface AuditEntry {
 }
 
 export default function AuditPage() {
-  const { accessToken } = useAuth();
+  const { accessToken, user } = useAuth();
   const [logs, setLogs] = useState<AuditEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [chainValid, setChainValid] = useState<boolean | null>(null);
+
+  // Hash-chain integrity is a GLOBAL property. Non-admins receive a server-filtered
+  // slice of the audit log (only their own actions), so the chain links they DO see
+  // may reference parents that aren't visible to them. That makes their local
+  // verification meaningless. We surface this honestly in the UI.
+  const canVerifyChain = user?.roles?.some((r) => r === "course_admin" || r === "system_admin") ?? false;
 
   function loadLogs() {
     if (!accessToken) return;
@@ -88,11 +94,23 @@ export default function AuditPage() {
             <div className="stat-label">Chain status</div>
             <div className="stat-value" style={{
               fontSize: 14,
-              color: chainValid === null ? "var(--text-muted)" : chainValid ? "var(--success)" : "var(--danger)",
+              color: chainValid === null
+                ? "var(--text-muted)"
+                : !canVerifyChain
+                  ? "var(--text-muted)"
+                  : chainValid
+                    ? "var(--success)"
+                    : "var(--danger)",
             }}>
-              {chainValid === null ? "Checking…" : chainValid ? "Verified" : "BROKEN"}
+              {chainValid === null
+                ? "Checking…"
+                : !canVerifyChain
+                  ? "Admin-only"
+                  : chainValid
+                    ? "Verified"
+                    : "BROKEN"}
             </div>
-            <div className="stat-sub">SHA-256 chain</div>
+            <div className="stat-sub">{canVerifyChain ? "SHA-256 chain" : "Partial view"}</div>
           </div>
           <div className="stat-card">
             <div className="stat-label">Hash algorithm</div>
@@ -103,17 +121,28 @@ export default function AuditPage() {
 
         {/* Chain integrity banner */}
         {!loading && chainValid !== null && (
-          <div
-            className={chainValid ? "alert alert-success" : "alert alert-error"}
-            style={{ marginBottom: 20, fontSize: 14 }}
-          >
-            {chainValid
-              ? <ShieldCheck size={15} />
-              : <ShieldAlert size={15} />}
-            {chainValid
-              ? `Hash chain verified — ${logs.length} entries, no tampering detected`
-              : "HASH CHAIN BROKEN — tampering or data corruption detected!"}
-          </div>
+          canVerifyChain ? (
+            // Admins see the full chain — verification is meaningful
+            <div
+              className={chainValid ? "alert alert-success" : "alert alert-error"}
+              style={{ marginBottom: 20, fontSize: 14 }}
+            >
+              {chainValid ? <ShieldCheck size={15} /> : <ShieldAlert size={15} />}
+              {chainValid
+                ? `Hash chain verified — ${logs.length} entries, no tampering detected`
+                : "HASH CHAIN BROKEN — tampering or data corruption detected!"}
+            </div>
+          ) : (
+            // Non-admins receive a filtered slice — local verification isn't conclusive
+            <div className="alert alert-info" style={{ marginBottom: 20, fontSize: 14 }}>
+              <ShieldCheck size={15} />
+              <span>
+                Showing <strong>{logs.length}</strong> of your own audit entries.
+                {" "}Full hash-chain verification requires the complete log and is performed by
+                course administrators. Ask an admin to run integrity checks across the system.
+              </span>
+            </div>
+          )
         )}
 
         {/* Audit table */}
