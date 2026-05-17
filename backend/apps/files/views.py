@@ -11,6 +11,8 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
 
+from apps.keys.models import UserPublicKey
+
 from .models import EncryptedFileKey, FileManifest, SecureFile, Signature
 from .serializers import SecureFileSerializer
 
@@ -137,11 +139,20 @@ class SecureFileViewSet(ModelViewSet):
         """
         secure_file = self.get_object()
 
-        encrypted_key = EncryptedFileKey.objects.filter(
-            file=secure_file,
-            recipient_user=request.user,
-            revoked_at__isnull=True,
-        ).select_related("recipient_key").first()
+        # Prefer the most recently created wrapped key — it's the one wrapped for
+        # the user's current active public key (older ones may have been superseded).
+        encrypted_key = (
+            EncryptedFileKey.objects
+            .filter(
+                file=secure_file,
+                recipient_user=request.user,
+                revoked_at__isnull=True,
+                recipient_key__status=UserPublicKey.Status.ACTIVE,
+            )
+            .select_related("recipient_key")
+            .order_by("-created_at")
+            .first()
+        )
 
         if not encrypted_key:
             return Response({"detail": "You are not a recipient of this file."}, status=status.HTTP_403_FORBIDDEN)

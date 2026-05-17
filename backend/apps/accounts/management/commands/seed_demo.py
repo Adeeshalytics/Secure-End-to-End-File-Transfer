@@ -44,9 +44,9 @@ class Command(BaseCommand):
     def _seed_users(self):
         for username, email, password, role_name in DEMO_USERS:
             user, created = User.objects.get_or_create(username=username, defaults={"email": email})
-            if created:
-                user.set_password(password)
-                user.save()
+            # Always reset the password so re-running seed_demo is idempotent
+            user.set_password(password)
+            user.save()
             UserProfile.objects.get_or_create(
                 user=user,
                 defaults={"institution_id": f"DEMO-{username.upper()}", "status": UserProfile.Status.ACTIVE},

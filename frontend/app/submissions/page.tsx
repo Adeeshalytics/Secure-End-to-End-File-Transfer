@@ -198,17 +198,27 @@ export default function SubmissionsPage() {
   }
 
   async function handleDownload(fileId: number) {
-    if (!accessToken) return;
+    if (!accessToken) {
+      setDownloadStatus((s) => ({ ...s, [fileId]: "error:Not authenticated — please log in again." }));
+      return;
+    }
     setDownloadStatus((s) => ({ ...s, [fileId]: "Fetching ciphertext…" }));
+
+    // Track the stage so we can attribute OperationErrors correctly:
+    //   unwrap failure → RSA-OAEP key mismatch
+    //   decrypt failure → AES-GCM auth tag mismatch → TAMPERING
+    let stage: "fetch" | "unwrap" | "decrypt" = "fetch";
 
     try {
       const data = await authedRequest<DownloadResponse>(`/files/${fileId}/download/`, accessToken);
       setDownloadStatus((s) => ({ ...s, [fileId]: "Unwrapping AES key…" }));
 
+      stage = "unwrap";
       const { encryptionPrivKey } = await getPrivateKeysOrThrow();
       const aesKey = await unwrapAesKey(data.wrapped_key.wrapped_key_ciphertext, encryptionPrivKey);
 
       setDownloadStatus((s) => ({ ...s, [fileId]: "Decrypting…" }));
+      stage = "decrypt";
 
       const ciphertextBin = atob(data.ciphertext_b64);
       const ciphertextBytes = new Uint8Array(ciphertextBin.length);
@@ -228,16 +238,18 @@ export default function SubmissionsPage() {
       const a = document.createElement("a");
       a.href = url;
       a.download = (data.manifest?.manifest_json?.filename as string) ?? `file-${fileId}`;
+      // Must be in the DOM for Firefox; delay revoke so browser can start the download
+      document.body.appendChild(a);
       a.click();
-      URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
 
       const sigNote = data.signature ? ` · Signed by ${data.signature.signed_by}` : "";
       setDownloadStatus((s) => ({ ...s, [fileId]: `✓ Decrypted${sigNote}` }));
     } catch (err) {
-      setDownloadStatus((s) => ({
-        ...s,
-        [fileId]: err instanceof Error ? err.message : "Decryption failed.",
-      }));
+      console.error(`[decrypt] failure for file ${fileId} at stage=${stage}`, err);
+      const msg = formatDecryptError(err, stage);
+      setDownloadStatus((s) => ({ ...s, [fileId]: `error:${msg}` }));
     }
   }
 
@@ -424,22 +436,12 @@ export default function SubmissionsPage() {
                           <button
                             className="btn btn-secondary btn-sm"
                             onClick={() => void handleDownload(f.id)}
+                            disabled={downloadStatus[f.id] === "decrypting"}
                           >
                             <Download size={11} />
                             Decrypt
                           </button>
-                          {downloadStatus[f.id] && (
-                            <span style={{
-                              fontSize: 11,
-                              color: downloadStatus[f.id].startsWith("✓")
-                                ? "var(--success)"
-                                : downloadStatus[f.id].includes("failed") || downloadStatus[f.id].includes("Error")
-                                  ? "var(--danger)"
-                                  : "var(--text-muted)",
-                            }}>
-                              {downloadStatus[f.id]}
-                            </span>
-                          )}
+                          {downloadStatus[f.id] && <DownloadBadge msg={downloadStatus[f.id]} />}
                         </div>
                       </td>
                     </tr>
@@ -452,5 +454,72 @@ export default function SubmissionsPage() {
         </div>
       </div>
     </AppShell>
+  );
+}
+
+// ── Map low-level decrypt errors into a useful sentence ─────────────────────
+function formatDecryptError(err: unknown, stage: "fetch" | "unwrap" | "decrypt"): string {
+  // ApiError from /lib/api/client.ts
+  if (err && typeof err === "object" && "status" in err) {
+    const ae = err as { status: number; payload: unknown };
+    const detail = (ae.payload as { detail?: string } | null)?.detail;
+    if (ae.status === 403) return detail ?? "You are not a recipient of this file.";
+    if (ae.status === 404) return detail ?? "File not found.";
+    if (ae.status === 401) return "Session expired — please log in again.";
+    if (detail) return `${detail} (HTTP ${ae.status})`;
+    return `Server error (HTTP ${ae.status})`;
+  }
+
+  // Web Crypto DOMException — name is informative, message is usually empty.
+  // The stage tells us whether it was an RSA unwrap failure or an AES-GCM auth failure.
+  if (err instanceof DOMException && err.name === "OperationError") {
+    if (stage === "unwrap") {
+      return "RSA-OAEP unwrap failed — your private key doesn't match the public key this AES key was wrapped for. " +
+             "Likely cause: keys were regenerated after this file was uploaded.";
+    }
+    if (stage === "decrypt") {
+      return "⚠ TAMPER DETECTED — AES-256-GCM authentication tag mismatch. " +
+             "The ciphertext or IV has been modified since upload. " +
+             "Decryption refused.";
+    }
+  }
+  if (err instanceof DOMException) {
+    return `Crypto error: ${err.name}${err.message ? ` — ${err.message}` : ""}`;
+  }
+  if (err instanceof Error && err.message) return err.message;
+  return "Unknown error — check the browser console (F12) for details.";
+}
+
+// ── Download status badge ────────────────────────────────────────────────────
+function DownloadBadge({ msg }: { msg: string }) {
+  const isSuccess = msg.startsWith("✓");
+  const isError   = msg.startsWith("error:");
+  const isWorking = !isSuccess && !isError;
+
+  const rawLabel = isError ? msg.replace("error:", "").trim() : msg;
+  const label = rawLabel || "Unknown error — check browser console (F12)";
+
+  if (isWorking) {
+    return (
+      <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11.5, color: "var(--text-muted)", marginTop: 4 }}>
+        <Loader2 size={11} className="spinner" />
+        {label}
+      </span>
+    );
+  }
+  return (
+    <span style={{
+      display: "flex", alignItems: "flex-start", gap: 5, marginTop: 4,
+      padding: "4px 8px", borderRadius: 5, fontSize: 12,
+      background: isSuccess ? "var(--success-bg)" : "var(--danger-bg)",
+      color: isSuccess ? "#166534" : "#991b1b",
+      border: `1px solid ${isSuccess ? "var(--success-border)" : "var(--danger-border)"}`,
+      lineHeight: 1.4,
+    }}>
+      {isSuccess
+        ? <CheckCircle2 size={12} style={{ flexShrink: 0, marginTop: 1 }} />
+        : <AlertCircle  size={12} style={{ flexShrink: 0, marginTop: 1 }} />}
+      {label}
+    </span>
   );
 }
