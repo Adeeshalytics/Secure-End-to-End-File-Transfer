@@ -1,118 +1,166 @@
-# Setup Guide — Run This First
+# SecureEval — Setup Guide
+
+End-to-end encrypted academic file exchange. This guide gets you from `git clone` to a working demo in ~10 minutes.
 
 ## Prerequisites
 
-- Python 3.11+ installed
-- Node.js 18+ installed
-- Docker Desktop running (for PostgreSQL)
+Install these first:
+- **Docker Desktop** — for PostgreSQL
+- **Python 3.12+** — backend
+- **Node.js 18+** — frontend
+- **Git**
 
----
-
-## Step 1: Start PostgreSQL
-
-```bash
-docker-compose up -d
+Verify:
+```powershell
+docker --version
+python --version
+node --version
 ```
 
-Wait ~5 seconds for PostgreSQL to be ready.
+## Step 1 — Clone
 
----
+```powershell
+git clone <repo-url> secureeval
+cd secureeval
+```
 
-## Step 2: Backend Setup
+## Step 2 — Database (PostgreSQL via Docker)
 
-```bash
+Start the Postgres container:
+```powershell
+docker compose up -d postgres
+```
+
+Verify it's running:
+```powershell
+docker ps
+```
+You should see a `postgres:16-alpine` container with port `5432:5432`.
+
+> No `docker-compose.yml`? Run a one-line container instead:
+> ```powershell
+> docker run -d --name secureeval-pg -e POSTGRES_USER=secure_eval -e POSTGRES_PASSWORD=change-me-local-only -e POSTGRES_DB=secure_academic_eval -p 5432:5432 postgres:16-alpine
+> ```
+
+## Step 3 — Backend (Django on port 8001)
+
+Open a new PowerShell terminal:
+
+```powershell
 cd backend
+
+# Create and activate virtual environment
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+
+# Install dependencies
 pip install -r requirements.txt
-python manage.py makemigrations
+```
+
+### Create `backend/.env`
+
+The file is gitignored. Create it with this content:
+
+```env
+DJANGO_SECRET_KEY=dev-only-replace-with-managed-secret-key-at-least-32-bytes
+DJANGO_DEBUG=True
+DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1
+CORS_ALLOWED_ORIGINS=http://localhost:3000
+CSRF_TRUSTED_ORIGINS=http://localhost:3000
+
+DATABASE_URL=postgres://secure_eval:change-me-local-only@localhost:5432/secure_academic_eval
+
+JWT_ACCESS_TOKEN_MINUTES=60
+JWT_REFRESH_TOKEN_DAYS=7
+
+SECURE_PROXY_SSL_HEADER=
+```
+
+### Run migrations and seed demo data
+
+```powershell
 python manage.py migrate
 python manage.py seed_demo
 ```
 
-Expected seed output:
-```
-  Roles ensured: ['student', 'examiner', 'project_evaluator', 'course_admin', 'system_admin']
-  Users ensured: ['alice', 'bob', 'admin']
-  Course ensured: IS-501 — Information Security
-  Assignment ensured: Secure File Sharing System
+This creates:
+- 3 demo users: `alice` (student), `bob` (examiner), `admin` (course_admin + Django superuser)
+- 5 roles
+- 1 course (IS-501) + 1 assignment
+- All with password: `DemoPassword1!`
 
-Demo seed complete.
+### Start the backend
 
-Demo accounts (username / password / role):
-  alice       DemoPassword1!  (student)
-  bob         DemoPassword1!  (examiner)
-  admin       DemoPassword1!  (course_admin)
+```powershell
+python manage.py runserver 8001
 ```
 
-Then start the backend:
-```bash
-python manage.py runserver
-```
+Backend should be at `http://localhost:8001/` and admin at `http://localhost:8001/admin/`.
 
-Backend runs at: http://localhost:8000
+## Step 4 — Frontend (Next.js on port 3000)
 
----
+Open another PowerShell terminal:
 
-## Step 3: Frontend Setup
-
-Open a new terminal:
-
-```bash
+```powershell
 cd frontend
 npm install
+```
+
+### Create `frontend/.env.local`
+
+The file is gitignored. Create it with this content:
+
+```env
+NEXT_PUBLIC_API_BASE_URL=http://localhost:8001/api/v1
+NEXT_PUBLIC_APP_NAME=Secure Academic Evaluation
+```
+
+### Start the frontend
+
+```powershell
 npm run dev
 ```
 
-Frontend runs at: http://localhost:3000
+Open `http://localhost:3000` — login screen should appear.
 
----
+## Step 5 — Verify everything works
 
-## Demo Flow
+1. Click any demo account button on the login screen (alice / bob / admin)
+2. Password is already `DemoPassword1!` — should auto-fill and log in
+3. Go to **My Keys** → **Generate & Register Key Pair**
+4. As alice, upload a file in **Submissions**
+5. As bob (different browser window), decrypt it
 
-### Golden path for the evaluator:
+## Demo accounts
 
-1. Open http://localhost:3000/login
-2. Click **alice** (student) — auto-fills credentials
-3. Go to **Keys** → click **Generate and Register Key Pair** → wait ~2 seconds
-4. Go to **Submissions** → select the assignment → pick a PDF/DOCX → click **Encrypt and Upload**
-5. Watch the status: Encrypting… → Uploading… → Done (shows file ID + ciphertext hash)
-6. Sign out → log in as **bob** (examiner)
-7. Go to **Keys** → click **Generate and Register Key Pair**
-   - Note: bob must register keys BEFORE alice uploads to receive a wrapped key
-   - For demo: re-upload after bob registers keys, OR have alice upload after step 7
-8. Go to **Submissions** → find the file → click **Decrypt + Download**
-9. Browser decrypts locally, file downloads
-10. Go to **Audit Log** → see hash-chained events → chain verification shows green
-
-### What to show during viva:
-
-**Confidentiality:** Show the `backend/media/ciphertext/` folder — binary gibberish, no readable content.
-
-**Integrity:** In Django admin, edit an AuditLog entry's hash → audit page shows "HASH CHAIN BROKEN".
-
-**Non-repudiation:** Each file has an RSA-PSS signature in the Signature table, tied to the signer's registered public key.
-
-**Key separation:** The server only stores wrapped (RSA-OAEP encrypted) AES keys. Without the recipient's private key, the wrapped key reveals nothing.
-
-**Authentication:** JWT (10-min access tokens, 7-day refresh, blacklisted on rotation).
-
----
-
-## Demo Account Credentials
-
-| Username | Password | Role |
-|----------|----------|------|
-| alice | DemoPassword1! | Student |
-| bob | DemoPassword1! | Examiner |
-| admin | DemoPassword1! | Course Admin |
-
----
+| Username | Password | Role | What they can do |
+|---|---|---|---|
+| `alice` | `DemoPassword1!` | student | Upload submissions, view rubrics |
+| `bob` | `DemoPassword1!` | examiner | Decrypt submissions, upload rubrics |
+| `admin` | `DemoPassword1!` | course_admin + Django superuser | Audit log + `/admin/` access |
 
 ## Troubleshooting
 
-**CORS error in browser:** Ensure `backend/.env` has `CORS_ALLOWED_ORIGINS=http://localhost:3000`.
+| Problem | Fix |
+|---|---|
+| `connection refused` from Django to Postgres | Make sure `docker ps` shows the postgres container running on port 5432 |
+| Port 8000 already in use | We use 8001 specifically to avoid conflicts; verify `runserver 8001` |
+| Frontend "API failed" errors | Confirm `frontend/.env.local` has `localhost:8001` and the backend is actually running |
+| Login says "Invalid username or password" | Re-run `python manage.py seed_demo` (idempotent — safe to run anytime) |
+| `/admin/` shows yellow error page | Make sure `pip install -r requirements.txt` ran successfully; Django must be ≥ 5.1 |
+| Decrypt fails with "tamper detected" or "key mismatch" | The submission was made with old keys. Have alice re-upload after key generation, OR run a clean reset (see below) |
 
-**"No wrapped key" on download:** Bob must register his key pair BEFORE the file is uploaded. Re-upload after bob registers.
+## Clean reset (wipe everything and start fresh)
 
-**Migration error:** Run `python manage.py makemigrations accounts assignments courses rbac files keys submissions evaluations audit` then `python manage.py migrate`.
+```powershell
+# In the backend terminal (Ctrl+C the server first)
+python manage.py shell -c "from apps.files.models import SecureFile, EncryptedFileKey, FileManifest, Signature; from apps.keys.models import UserPublicKey; from apps.audit.models import AuditLog; Signature.objects.all().delete(); FileManifest.objects.all().delete(); EncryptedFileKey.objects.all().delete(); SecureFile.objects.all().delete(); UserPublicKey.objects.all().delete(); AuditLog.objects.all().delete(); print('Cleared')"
 
-**Port conflict:** Backend uses 8000, frontend uses 3000. Kill any processes using those ports first.
+Remove-Item -Recurse -Force media\ciphertext -ErrorAction SilentlyContinue
+```
+
+Then in **both browser windows**: DevTools (F12) → Application → Storage → Clear site data.
+
+## Read next
+
+- [`DEMO_GUIDE.md`](DEMO_GUIDE.md) — the full demo script and talking points
