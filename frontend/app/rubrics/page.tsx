@@ -22,6 +22,52 @@ import {
   CheckCircle2, Loader2, AlertCircle, Lock, ShieldCheck,
 } from "lucide-react";
 
+function formatDecryptError(err: unknown): string {
+  if (err && typeof err === "object" && "status" in err) {
+    const ae = err as { status: number; payload: unknown };
+    const detail = (ae.payload as { detail?: string } | null)?.detail;
+    if (ae.status === 403) return detail ?? "You are not a recipient of this file.";
+    if (ae.status === 404) return detail ?? "File not found.";
+    if (ae.status === 401) return "Session expired — please log in again.";
+    if (detail) return `${detail} (HTTP ${ae.status})`;
+    return `Server error (HTTP ${ae.status})`;
+  }
+  if (err instanceof DOMException) {
+    if (err.name === "OperationError")
+      return "Decryption failed — your private key doesn't match the wrapped AES key. " +
+             "Likely cause: this rubric was uploaded before your current key pair was generated.";
+    return `Crypto error: ${err.name}${err.message ? ` — ${err.message}` : ""}`;
+  }
+  if (err instanceof Error && err.message) return err.message;
+  return "Unknown error — check the browser console (F12) for details.";
+}
+
+function DownloadBadge({ msg }: { msg: string }) {
+  const isSuccess = msg.startsWith("✓");
+  const isError   = msg.startsWith("error:");
+  const isWorking = !isSuccess && !isError;
+  const rawLabel = isError ? msg.replace("error:", "").trim() : msg;
+  const label = rawLabel || "Unknown error — check browser console (F12)";
+  if (isWorking) return (
+    <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11.5, color: "var(--text-muted)", marginTop: 4 }}>
+      <Loader2 size={11} className="spinner" />{label}
+    </span>
+  );
+  return (
+    <span style={{
+      display: "flex", alignItems: "flex-start", gap: 5, marginTop: 4,
+      padding: "4px 8px", borderRadius: 5, fontSize: 12,
+      background: isSuccess ? "var(--success-bg)" : "var(--danger-bg)",
+      color: isSuccess ? "#166534" : "#991b1b",
+      border: `1px solid ${isSuccess ? "var(--success-border)" : "var(--danger-border)"}`,
+      lineHeight: 1.4,
+    }}>
+      {isSuccess ? <CheckCircle2 size={12} style={{ flexShrink: 0, marginTop: 1 }} /> : <AlertCircle size={12} style={{ flexShrink: 0, marginTop: 1 }} />}
+      {label}
+    </span>
+  );
+}
+
 interface Assignment {
   id: number;
   course: number;
@@ -204,7 +250,10 @@ export default function RubricsPage() {
   }
 
   async function handleDownload(fileId: number) {
-    if (!accessToken) return;
+    if (!accessToken) {
+      setDownloadStatus((s) => ({ ...s, [fileId]: "error:Not authenticated — please log in again." }));
+      return;
+    }
     setDownloadStatus((s) => ({ ...s, [fileId]: "Fetching ciphertext…" }));
     try {
       const data = await authedRequest<DownloadResponse>(`/files/${fileId}/download/`, accessToken);
@@ -233,16 +282,17 @@ export default function RubricsPage() {
       const a = document.createElement("a");
       a.href = url;
       a.download = (data.manifest?.manifest_json?.filename as string) ?? `rubric-${fileId}`;
+      document.body.appendChild(a);
       a.click();
-      URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
 
       const sigNote = data.signature ? ` · Signed by ${data.signature.signed_by}` : "";
       setDownloadStatus((s) => ({ ...s, [fileId]: `✓ Decrypted${sigNote}` }));
     } catch (err) {
-      setDownloadStatus((s) => ({
-        ...s,
-        [fileId]: err instanceof Error ? err.message : "Decryption failed.",
-      }));
+      console.error("[decrypt] failure for file", fileId, err);
+      const msg = formatDecryptError(err);
+      setDownloadStatus((s) => ({ ...s, [fileId]: `error:${msg}` }));
     }
   }
 
@@ -414,18 +464,7 @@ export default function RubricsPage() {
                             <Download size={11} />
                             Decrypt
                           </button>
-                          {downloadStatus[f.id] && (
-                            <span style={{
-                              fontSize: 11,
-                              color: downloadStatus[f.id].startsWith("✓")
-                                ? "var(--success)"
-                                : downloadStatus[f.id].includes("failed") || downloadStatus[f.id].includes("Error")
-                                  ? "var(--danger)"
-                                  : "var(--text-muted)",
-                            }}>
-                              {downloadStatus[f.id]}
-                            </span>
-                          )}
+                          {downloadStatus[f.id] && <DownloadBadge msg={downloadStatus[f.id]} />}
                         </div>
                       </td>
                     </tr>

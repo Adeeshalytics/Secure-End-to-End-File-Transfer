@@ -147,18 +147,21 @@ export async function importSigningPublicKey(pem: string): Promise<CryptoKey> {
 
 export async function encryptFile(
   file: File,
-  aad: Record<string, unknown>,
+  _aad: Record<string, unknown>,   // kept for API compatibility; context-binding lives in the signed manifest instead
 ): Promise<{ payload: EncryptedPayload; rawAesKey: ArrayBuffer }> {
   const plaintext = await file.arrayBuffer();
   const plaintextSha256 = await sha256Hex(plaintext);
 
   const aesKey = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, true, ["encrypt", "decrypt"]);
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  const aadBytes = new TextEncoder().encode(JSON.stringify(aad, Object.keys(aad).sort()));
 
-  // Web Crypto AES-GCM appends the 16-byte auth tag to the ciphertext
+  // Web Crypto AES-GCM appends the 16-byte auth tag to the ciphertext.
+  // We deliberately do NOT pass additionalData here — the same AAD must be supplied on decrypt,
+  // and we don't currently roundtrip AAD through the server. Context binding is enforced via the
+  // RSA-PSS-signed manifest, which already commits to assignment_id, course_id, filename,
+  // plaintext_sha256, and ciphertext_sha256.
   const ciphertextWithTag = await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv, additionalData: aadBytes, tagLength: 128 },
+    { name: "AES-GCM", iv, tagLength: 128 },
     aesKey,
     plaintext,
   );
