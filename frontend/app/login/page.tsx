@@ -6,7 +6,7 @@ import { useAuth } from "@/features/auth/auth-provider";
 
 const DEMO_ACCOUNTS = [
   { username: "alice", role: "Student",      password: "DemoPassword1!", color: "#7c3aed" },
-  { username: "bob",   role: "Examiner",     password: "DemoPassword1!", color: "#0284c7" },
+  { username: "bob",   role: "Examiner",     password: "DemoPassword1!", color: "#ea580c" },
   { username: "admin", role: "Course Admin", password: "DemoPassword1!", color: "#059669" },
 ];
 

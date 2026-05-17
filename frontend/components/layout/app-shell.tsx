@@ -37,6 +37,39 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const initial = user?.username?.[0]?.toUpperCase() ?? "?";
   const primaryRole = user?.roles?.[0] ?? "";
 
+  // Role-based avatar colour — matches the login page demo accounts
+  const avatarColor =
+    primaryRole === "examiner" || primaryRole === "project_evaluator" ? "#ea580c" :  // orange (Bob)
+    primaryRole === "course_admin" || primaryRole === "system_admin"  ? "#059669" :  // green  (Admin)
+                                                                        "#7c3aed";   // purple (Alice / student)
+
+  // Role-based sidebar theme — distinct background per role so both demo windows
+  // are visually unambiguous at a glance. CSS variables propagate to .sidebar,
+  // .mobile-header, .nav-item, .sidebar-logo-icon, etc.
+  const shellStyle = (() => {
+    if (primaryRole === "examiner" || primaryRole === "project_evaluator") {
+      return {
+        // Material light blue — high-contrast, clearly distinguishable from Alice's dark theme
+        "--sidebar-bg": "#2196F3",
+        "--sidebar-border": "rgba(255,255,255,0.2)",
+        "--sidebar-text": "rgba(255,255,255,0.78)",
+        "--sidebar-text-active": "#ffffff",
+        "--sidebar-hover": "rgba(255,255,255,0.14)",
+        "--sidebar-active-bg": "rgba(255,255,255,0.22)",
+        "--sidebar-active-text": "#ffffff",
+      } as React.CSSProperties;
+    }
+    if (primaryRole === "course_admin" || primaryRole === "system_admin") {
+      return {
+        // Dark emerald — distinct from both Alice (dark slate) and Bob (Material blue)
+        "--sidebar-bg": "#064e3b",
+        "--sidebar-border": "rgba(255,255,255,0.12)",
+      } as React.CSSProperties;
+    }
+    // Student (Alice) — keep the default dark slate from globals.css
+    return undefined;
+  })();
+
   const SidebarContent = () => (
     <>
       <div className="sidebar-logo">
@@ -79,7 +112,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <div className="sidebar-footer">
         {user && (
           <div className="user-chip">
-            <div className="user-avatar">{initial}</div>
+            <div className="user-avatar" style={{ background: avatarColor }}>{initial}</div>
             <div className="min-w-0">
               <div className="user-name truncate">{user.username}</div>
               <div className="user-role">{primaryRole}</div>
@@ -95,7 +128,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   );
 
   return (
-    <div className="shell">
+    <div className="shell" style={shellStyle}>
       {/* ── Mobile header bar ───────────────────────────────────────────────── */}
       <header className="mobile-header">
         <div className="mobile-header-logo">

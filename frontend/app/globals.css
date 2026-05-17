@@ -124,7 +124,7 @@ img, svg { display: block; }
   margin-bottom: 1px; text-decoration: none;
 }
 .nav-item:hover { background: var(--sidebar-hover); color: var(--sidebar-text-active); }
-.nav-item.active { background: rgba(59,130,246,0.15); color: #60a5fa; }
+.nav-item.active { background: var(--sidebar-active-bg, rgba(59,130,246,0.15)); color: var(--sidebar-active-text, #60a5fa); }
 .nav-item svg { flex-shrink: 0; opacity: 0.8; }
 .nav-item.active svg { opacity: 1; }
 
