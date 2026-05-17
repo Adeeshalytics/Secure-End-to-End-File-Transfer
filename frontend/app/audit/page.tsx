@@ -62,7 +62,7 @@ export default function AuditPage() {
     <AppShell>
       <div className="page-container">
         {/* Header */}
-        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 28 }}>
+        <div className="page-header-row" style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 28 }}>
           <div>
             <h1 style={{ fontSize: 22, fontWeight: 700, color: "var(--text-primary)", margin: "0 0 6px" }}>
               Audit Log
@@ -139,18 +139,18 @@ export default function AuditPage() {
                 <div style={{ fontSize: 13, color: "var(--text-muted)" }}>Events appear after login, upload, and download actions.</div>
               </div>
             ) : (
-              <div style={{ overflowX: "auto" }}>
+              <div className="table-scroll">
                 <table className="data-table">
                   <thead>
                     <tr>
                       <th>#</th>
                       <th>Actor</th>
                       <th>Action</th>
-                      <th>Resource</th>
-                      <th>IP</th>
+                      <th className="hide-mobile">Resource</th>
+                      <th className="hide-mobile">IP</th>
                       <th>Prev hash</th>
                       <th>This hash</th>
-                      <th>Time</th>
+                      <th className="hide-mobile">Time</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -165,11 +165,11 @@ export default function AuditPage() {
                               {log.action.length > 30 ? log.action.slice(0, 30) + "…" : log.action}
                             </span>
                           </td>
-                          <td style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                          <td className="hide-mobile" style={{ fontSize: 12, color: "var(--text-muted)" }}>
                             {log.resource_type}
                             {log.resource_id && <span style={{ marginLeft: 4 }}>#{log.resource_id}</span>}
                           </td>
-                          <td style={{ fontSize: 12, color: "var(--text-muted)" }}>{log.ip_address ?? "—"}</td>
+                          <td className="hide-mobile" style={{ fontSize: 12, color: "var(--text-muted)" }}>{log.ip_address ?? "—"}</td>
                           <td>
                             <span className="hash-short">
                               {log.previous_log_hash ? log.previous_log_hash.slice(0, 10) + "…" : <em style={{ color: "var(--text-muted)" }}>genesis</em>}
@@ -183,7 +183,7 @@ export default function AuditPage() {
                               )}
                             </div>
                           </td>
-                          <td style={{ whiteSpace: "nowrap", fontSize: 12, color: "var(--text-muted)" }}>
+                          <td className="hide-mobile" style={{ whiteSpace: "nowrap", fontSize: 12, color: "var(--text-muted)" }}>
                             {new Date(log.created_at).toLocaleString()}
                           </td>
                         </tr>

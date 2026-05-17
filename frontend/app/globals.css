@@ -68,7 +68,7 @@ button, input, select, textarea { font: inherit; }
 img, svg { display: block; }
 
 /* ── Shell ──────────────────────────────────────────────────────────────────── */
-.shell { display: flex; min-height: 100vh; }
+.shell { display: flex; min-height: 100vh; flex-direction: row; }
 
 /* ── Sidebar ────────────────────────────────────────────────────────────────── */
 .sidebar {
@@ -82,7 +82,11 @@ img, svg { display: block; }
   height: 100vh;
   overflow-y: auto;
   z-index: 40;
+  /* Transition only activates on mobile via media query */
 }
+
+/* Mobile-only close button in sidebar header — hidden on desktop */
+.mobile-close-btn { display: none; }
 
 .sidebar-logo {
   display: flex;
@@ -147,7 +151,7 @@ img, svg { display: block; }
 .btn-logout:hover { background: var(--sidebar-hover); color: var(--sidebar-text-active); }
 
 /* ── Main content ───────────────────────────────────────────────────────────── */
-.main-content { margin-left: var(--sidebar-width); flex: 1; min-height: 100vh; }
+.main-content { margin-left: var(--sidebar-width); flex: 1; min-height: 100vh; min-width: 0; }
 .page-container { padding: 32px 36px; max-width: 1080px; }
 .page-header { margin-bottom: 28px; }
 .page-title { font-size: 22px; font-weight: 700; color: var(--text-primary); letter-spacing: -0.3px; }
@@ -385,9 +389,152 @@ img, svg { display: block; }
 .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .divider { height: 1px; background: var(--border); }
 
-@media (max-width: 900px) {
-  .sidebar { transform: translateX(-100%); }
+/* ── Mobile header bar (hidden on desktop) ──────────────────────────────────── */
+.mobile-header {
+  display: none;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  height: 52px;
+  background: var(--sidebar-bg);
+  border-bottom: 1px solid var(--sidebar-border);
+  position: sticky;
+  top: 0;
+  z-index: 50;
+}
+.mobile-header-logo {
+  display: flex; align-items: center; gap: 10px;
+  color: var(--sidebar-text-active); font-weight: 700; font-size: 15px;
+}
+.mobile-header-logo-icon {
+  width: 28px; height: 28px;
+  background: var(--accent); border-radius: 6px;
+  display: flex; align-items: center; justify-content: center;
+}
+.hamburger {
+  display: flex; flex-direction: column; justify-content: center; gap: 5px;
+  width: 36px; height: 36px;
+  background: none; border: none; cursor: pointer; padding: 6px;
+  border-radius: 6px; transition: background var(--transition);
+}
+.hamburger:hover { background: var(--sidebar-hover); }
+.hamburger span {
+  display: block; height: 2px; width: 20px;
+  background: var(--sidebar-text); border-radius: 2px;
+  transition: all var(--transition);
+}
+.hamburger.open span:nth-child(1) { transform: translateY(7px) rotate(45deg); }
+.hamburger.open span:nth-child(2) { opacity: 0; transform: scaleX(0); }
+.hamburger.open span:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
+
+/* Sidebar backdrop (mobile only) */
+.sidebar-backdrop {
+  display: none;
+  position: fixed; inset: 0; z-index: 35;
+  background: rgba(0,0,0,0.5);
+  backdrop-filter: blur(2px);
+}
+
+/* ── Tablet (≤1024px) ───────────────────────────────────────────────────────── */
+@media (max-width: 1024px) {
+  .page-container { padding: 24px 24px; }
+
+  /* Collapse two-column info grids to single */
+  .info-row { grid-template-columns: 160px 1fr; }
+
+  /* Stat cards: 2 columns */
+  .stats-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* ── Mobile (≤768px) ────────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  /* Show mobile header, hide sidebar by default */
+  .mobile-header { display: flex; }
+  .sidebar-backdrop { display: block; }
+
+  .mobile-close-btn { display: flex !important; }
+
+  .sidebar {
+    transform: translateX(-100%);
+    transition: transform 280ms cubic-bezier(0.4, 0, 0.2, 1);
+    z-index: 40;
+    top: 52px;          /* sit below the mobile header bar */
+    height: calc(100vh - 52px);
+  }
+  .sidebar.open { transform: translateX(0); }
+  .sidebar-backdrop { top: 52px; }
+
   .main-content { margin-left: 0; }
-  .page-container { padding: 24px 20px; }
+
+  .page-container { padding: 20px 16px; }
+
+  /* Cards: remove horizontal padding on tiny screens */
+  .card-body { padding: 16px; }
+  .card-header { padding: 12px 16px; }
+  .card-footer { padding: 10px 16px; }
+
+  /* Info grid stacks vertically */
+  .info-row {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+  .info-key { color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; }
+
+  /* Stat cards: 2 columns on mobile, 1 on very small */
+  .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .stat-card { padding: 12px 14px; }
+  .stat-value { font-size: 18px; }
+
+  /* Tables: horizontal scroll */
+  .data-table { font-size: 12.5px; min-width: 560px; }
+  .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .table-scroll .data-table th:first-child,
+  .table-scroll .data-table td:first-child { padding-left: 12px; }
+  .table-scroll .data-table th:last-child,
+  .table-scroll .data-table td:last-child { padding-right: 12px; }
+
+  /* Buttons: full-width in forms, compact elsewhere */
+  .btn-lg { width: 100%; justify-content: center; }
+
+  /* Forms: single column */
+  .form-two-col { grid-template-columns: 1fr !important; }
+
+  /* Login: hide left panel, full-width right */
   .login-left { display: none; }
+  .login-right { padding: 24px 16px; }
+  .login-card { max-width: 100%; }
+
+  /* Step indicator: wrap */
+  .step-indicator { flex-wrap: wrap; gap: 8px 6px; }
+
+  /* Status rows: allow text to wrap */
+  .status-row { flex-wrap: wrap; gap: 6px; }
+  .status-label { min-width: 0; }
+
+  /* Fingerprint: smaller font */
+  .fingerprint { font-size: 10px; }
+
+  /* Page header buttons inline with title */
+  .page-header-row {
+    flex-direction: column;
+    align-items: flex-start !important;
+    gap: 10px;
+  }
+
+  /* Hide less important table columns with .hide-mobile class */
+  .hide-mobile { display: none !important; }
+}
+
+/* ── Very small (≤480px) ────────────────────────────────────────────────────── */
+@media (max-width: 480px) {
+  .stats-grid { grid-template-columns: 1fr; }
+  .page-container { padding: 16px 12px; }
+  .card-body { padding: 14px 12px; }
+  .card-header { padding: 10px 12px; }
+
+  /* Split layout for dashboard arch diagram: stack vertically */
+  .arch-grid { grid-template-columns: 1fr !important; }
+
+  /* Crypto tags wrap tightly */
+  .crypto-tag { font-size: 10px; padding: 2px 6px; }
 }
