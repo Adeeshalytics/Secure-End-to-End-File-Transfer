@@ -295,7 +295,7 @@ export default function RubricsPage() {
                 The server receives only ciphertext.
               </p>
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
+              <div className="form-two-col" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
                 <div>
                   <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", display: "block", marginBottom: 6 }}>
                     Assignment
@@ -383,14 +383,15 @@ export default function RubricsPage() {
                 </div>
               </div>
             ) : (
+              <div className="table-scroll">
               <table className="data-table">
                 <thead>
                   <tr>
                     <th>ID</th>
-                    <th>MIME</th>
+                    <th className="hide-mobile">MIME</th>
                     <th>Size</th>
-                    <th>Ciphertext SHA-256</th>
-                    <th>Uploaded</th>
+                    <th className="hide-mobile">Ciphertext SHA-256</th>
+                    <th className="hide-mobile">Uploaded</th>
                     <th>Action</th>
                   </tr>
                 </thead>
@@ -398,10 +399,10 @@ export default function RubricsPage() {
                   {rubrics.map((f) => (
                     <tr key={f.id}>
                       <td><code style={{ fontSize: 12 }}>{f.id}</code></td>
-                      <td style={{ color: "var(--text-muted)", fontSize: 12 }}>{f.mime_type}</td>
+                      <td className="hide-mobile" style={{ color: "var(--text-muted)", fontSize: 12 }}>{f.mime_type}</td>
                       <td>{formatBytes(f.size_bytes)}</td>
-                      <td><span className="hash-short">{f.ciphertext_sha256.slice(0, 18)}…</span></td>
-                      <td style={{ color: "var(--text-muted)", fontSize: 12, whiteSpace: "nowrap" }}>
+                      <td className="hide-mobile"><span className="hash-short">{f.ciphertext_sha256.slice(0, 18)}…</span></td>
+                      <td className="hide-mobile" style={{ color: "var(--text-muted)", fontSize: 12, whiteSpace: "nowrap" }}>
                         {new Date(f.created_at).toLocaleDateString()}
                       </td>
                       <td>
@@ -431,6 +432,7 @@ export default function RubricsPage() {
                   ))}
                 </tbody>
               </table>
+              </div>
             )}
           </div>
         </div>
