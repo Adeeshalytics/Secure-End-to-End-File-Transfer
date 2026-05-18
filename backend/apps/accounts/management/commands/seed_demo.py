@@ -44,9 +44,14 @@ class Command(BaseCommand):
     def _seed_users(self):
         for username, email, password, role_name in DEMO_USERS:
             user, created = User.objects.get_or_create(username=username, defaults={"email": email})
-            if created:
-                user.set_password(password)
-                user.save()
+            # Always reset the password so re-running seed_demo is idempotent
+            user.set_password(password)
+            # Promote the demo "admin" account to a Django superuser so /admin/ is usable
+            # straight after seeding — no separate createsuperuser step needed.
+            if username == "admin":
+                user.is_staff = True
+                user.is_superuser = True
+            user.save()
             UserProfile.objects.get_or_create(
                 user=user,
                 defaults={"institution_id": f"DEMO-{username.upper()}", "status": UserProfile.Status.ACTIVE},
@@ -54,6 +59,7 @@ class Command(BaseCommand):
             role = Role.objects.get(name=role_name)
             RoleAssignment.objects.get_or_create(user=user, role=role, course=None, assignment=None)
         self.stdout.write(f"  Users ensured: {[u[0] for u in DEMO_USERS]}")
+        self.stdout.write("  Django admin: 'admin' is now a superuser (use DemoPassword1! at /admin/)")
 
     def _seed_course(self):
         course, _ = Course.objects.get_or_create(
