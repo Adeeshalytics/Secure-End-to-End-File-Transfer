@@ -25,6 +25,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const token = getAccessToken();
     if (token && !user) {
+      setAccessToken(token);
       requestCurrentUser(token)
         .then(setUser)
         .catch(() => {

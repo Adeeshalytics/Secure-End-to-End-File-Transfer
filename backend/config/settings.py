@@ -24,6 +24,7 @@ INSTALLED_APPS = [
     "rest_framework",
     "rest_framework_simplejwt",
     "rest_framework_simplejwt.token_blacklist",
+    "sslserver",
     "apps.accounts",
     "apps.authn",
     "apps.rbac",
@@ -100,6 +101,17 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": (
         "rest_framework.permissions.IsAuthenticated",
     ),
+    "DEFAULT_THROTTLE_CLASSES": [
+        "rest_framework.throttling.AnonRateThrottle",
+        "rest_framework.throttling.UserRateThrottle",
+    ],
+    "DEFAULT_THROTTLE_RATES": {
+        "anon": os.environ.get("THROTTLE_ANON_RATE", "30/minute"),
+        "user": os.environ.get("THROTTLE_USER_RATE", "120/minute"),
+        "login": os.environ.get("THROTTLE_LOGIN_RATE", "5/minute"),
+        "register": os.environ.get("THROTTLE_REGISTER_RATE", "3/minute"),
+        "upload": os.environ.get("THROTTLE_UPLOAD_RATE", "10/minute"),
+    },
     "DEFAULT_PAGINATION_CLASS": "common.pagination.StandardResultsSetPagination",
     "PAGE_SIZE": 50,
 }
@@ -129,3 +141,32 @@ SECURE_REFERRER_POLICY = "same-origin"
 SESSION_COOKIE_HTTPONLY = True
 CSRF_COOKIE_HTTPONLY = True
 X_FRAME_OPTIONS = "DENY"
+
+# ── DDoS / Rate Limiting (from .env) ──────────────────────────────────────────
+# All rates are configurable per environment without code changes.
+THROTTLE_ANON_RATE = os.environ.get("THROTTLE_ANON_RATE", "30/minute")
+THROTTLE_USER_RATE = os.environ.get("THROTTLE_USER_RATE", "120/minute")
+THROTTLE_LOGIN_RATE = os.environ.get("THROTTLE_LOGIN_RATE", "5/minute")
+THROTTLE_REGISTER_RATE = os.environ.get("THROTTLE_REGISTER_RATE", "3/minute")
+THROTTLE_UPLOAD_RATE = os.environ.get("THROTTLE_UPLOAD_RATE", "10/minute")
+
+# ── Upload size limits (DDoS / resource exhaustion protection) ─────────────────
+MAX_UPLOAD_SIZE_BYTES = int(os.environ.get("MAX_UPLOAD_SIZE_MB", "100")) * 1024 * 1024
+DATA_UPLOAD_MAX_MEMORY_SIZE = int(os.environ.get("DATA_UPLOAD_MAX_MEMORY_MB", "50")) * 1024 * 1024
+FILE_UPLOAD_MAX_MEMORY_SIZE = int(os.environ.get("FILE_UPLOAD_MAX_MEMORY_MB", "10")) * 1024 * 1024
+
+# ── Brute-force protection ────────────────────────────────────────────────────
+ACCOUNT_LOGIN_MAX_ATTEMPTS = int(os.environ.get("ACCOUNT_LOGIN_MAX_ATTEMPTS", "5"))
+ACCOUNT_LOCKOUT_DURATION = int(os.environ.get("ACCOUNT_LOCKOUT_DURATION", "300"))  # seconds
+
+# ── Replay attack protection ──────────────────────────────────────────────────
+NONCE_EXPIRY_SECONDS = int(os.environ.get("NONCE_EXPIRY_SECONDS", "3600"))
+
+# ── Production HTTPS enforcement (activate when deploying behind TLS) ──────────
+if not DEBUG:
+    SECURE_SSL_REDIRECT = True
+    SECURE_HSTS_SECONDS = 31536000           # 1 year
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
