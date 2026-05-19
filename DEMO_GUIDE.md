@@ -115,6 +115,7 @@ docker compose up -d postgres
 
 # Terminal 2 — Backend (port 8001 to avoid conflicts)
 cd backend
+python manage.py runserver_plus --cert-file localhost+2.pem --key-file localhost+2-key.pem 127.0.0.1:8001 
 python manage.py runserver 8001
 
 # Terminal 3 — Frontend
