@@ -12,6 +12,7 @@ import {
   unwrapAesKey,
   decryptFile,
 } from "@/lib/crypto/crypto-service";
+import { verifyOrPinKey } from "@/lib/crypto/pinned-keys";
 import type { EncryptedPayload } from "@/lib/crypto/types";
 import {
   Upload, Download, ShieldAlert, FileUp, CheckCircle2,
@@ -132,15 +133,24 @@ export default function SubmissionsPage() {
       }
 
       try {
-        const examinerKeys = await authedRequest<{ id: number; user: number; public_key_pem: string }[]>(
+        const examinerKeys = await authedRequest<{ id: number; user: number; public_key_pem: string; fingerprint_sha256: string }[]>(
           "/keys/examiner-keys/", accessToken,
         );
         for (const ek of examinerKeys) {
           if (ek.user === user!.id) continue;
+          
+          // Verify against pinned keys to prevent MITM substitution attacks
+          verifyOrPinKey(ek.user, ek.fingerprint_sha256);
+
           const wrapped = await wrapAesKey(rawAesKey, ek.public_key_pem);
           wrappedKeys.push({ recipient_user_id: ek.user, recipient_key_id: ek.id, wrapped_key_ciphertext: wrapped });
         }
-      } catch { /* No examiner keys registered yet */ }
+      } catch (err) {
+        if (err instanceof Error && err.message.includes("SECURITY ALERT")) {
+          throw err; // Re-throw security alerts to halt upload
+        }
+        // Otherwise ignore if no examiner keys registered yet
+      }
 
       const manifest = {
         filename: file.name,
@@ -153,6 +163,7 @@ export default function SubmissionsPage() {
         course_id: assignment.course,
         uploader_id: user!.id,
         timestamp: new Date().toISOString(),
+        request_nonce: crypto.randomUUID(),  // Replay attack protection
       };
 
       const { encryptionPrivKey: _ep, signingPrivKey } = await getPrivateKeysOrThrow();
@@ -171,6 +182,7 @@ export default function SubmissionsPage() {
         ciphertext_sha256: encPayload.ciphertextSha256,
         mime_type: file.type || "application/octet-stream",
         size_bytes: file.size,
+        request_nonce: manifest.request_nonce,  // Must match — server rejects duplicates
         encrypted_filename: { encrypted: false, filename: file.name },
         manifest: { manifest_json: signed.manifest, manifest_sha256: signed.manifestSha256 },
         signature: { signing_key_id: keyInfo.signingKeyId, signature_value: signed.signatureValue, signed_payload_sha256: signed.manifestSha256 },

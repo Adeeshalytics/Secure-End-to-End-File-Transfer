@@ -1,0 +1,15 @@
+ACT 4 - Tampering
+
+Clearing broken
+python manage.py shell
+
+from apps.audit.models import AuditLog
+prev = ""
+for e in AuditLog.objects.order_by("created_at"):
+    status = "OK " if e.previous_log_hash == prev else "BREAK"
+    print(f"  [{status}] id={e.id:3d}  prev={e.previous_log_hash[:8]:8s}  curr={e.current_log_hash[:8]}  {e.action[:50]}")
+    prev = e.current_log_hash
+
+AuditLog.objects.all().delete()
+print("Audit log cleared.")
+exit()

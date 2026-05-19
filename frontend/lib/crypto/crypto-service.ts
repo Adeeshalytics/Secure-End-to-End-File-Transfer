@@ -20,7 +20,12 @@ function ab2hex(buffer: ArrayBuffer): string {
 }
 
 function ab2b64(buffer: ArrayBuffer): string {
-  return btoa(String.fromCharCode(...new Uint8Array(buffer)));
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return window.btoa(binary);
 }
 
 function b64ToAb(b64: string): ArrayBuffer {
@@ -32,7 +37,7 @@ function b64ToAb(b64: string): ArrayBuffer {
 
 async function sha256Hex(data: ArrayBuffer | Uint8Array): Promise<string> {
   const buf = data instanceof Uint8Array ? data.buffer : data;
-  return ab2hex(await crypto.subtle.digest("SHA-256", buf));
+  return ab2hex(await crypto.subtle.digest("SHA-256", buf as ArrayBuffer));
 }
 
 function pemToSpki(pem: string): ArrayBuffer {

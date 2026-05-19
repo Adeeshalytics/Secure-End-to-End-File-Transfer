@@ -5,6 +5,7 @@ import os
 import uuid
 
 from django.conf import settings
+from django.core.cache import cache
 from django.db import transaction
 from rest_framework import status
 from rest_framework.decorators import action
@@ -12,9 +13,14 @@ from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
 
 from apps.keys.models import UserPublicKey
+from common.throttles import UploadRateThrottle
 
 from .models import EncryptedFileKey, FileManifest, SecureFile, Signature
 from .serializers import SecureFileSerializer
+
+# ── Replay protection constants ───────────────────────────────────────────────
+NONCE_CACHE_PREFIX = "upload_nonce:"
+NONCE_EXPIRY_SECONDS = getattr(settings, "NONCE_EXPIRY_SECONDS", 3600)
 
 
 def _save_ciphertext(data: bytes) -> tuple[str, str]:
@@ -45,13 +51,14 @@ class SecureFileViewSet(ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(owner=self.request.user)
 
-    @action(detail=False, methods=["post"], url_path="upload")
+    @action(detail=False, methods=["post"], url_path="upload", throttle_classes=[UploadRateThrottle])
     def upload(self, request):
         """
         Receive a multipart upload:
           - ciphertext (binary file)
           - metadata (JSON string): course, assignment, file_type, aes_gcm_iv, aes_gcm_tag,
               plaintext_sha256, mime_type, size_bytes, encrypted_filename,
+              request_nonce (UUID — replay protection),
               manifest: {manifest_json, manifest_sha256},
               signature: {signing_key_id, signature_value, signed_payload_sha256},
               wrapped_keys: [{recipient_user_id, recipient_key_id, wrapped_key_ciphertext}]
@@ -63,10 +70,36 @@ class SecureFileViewSet(ModelViewSet):
         if not ciphertext_file or not metadata_raw:
             return Response({"detail": "ciphertext file and metadata are required."}, status=status.HTTP_400_BAD_REQUEST)
 
+        # ── File size validation (resource exhaustion protection) ──────────
+        max_size = getattr(settings, "MAX_UPLOAD_SIZE_BYTES", 100 * 1024 * 1024)
+        if ciphertext_file.size and ciphertext_file.size > max_size:
+            max_mb = max_size // (1024 * 1024)
+            return Response(
+                {"detail": f"File too large. Maximum upload size is {max_mb} MB."},
+                status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            )
+
         try:
             meta = json.loads(metadata_raw)
         except json.JSONDecodeError:
             return Response({"detail": "metadata must be valid JSON."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # ── Replay attack protection (nonce check) ────────────────────────
+        request_nonce = meta.get("request_nonce", "")
+        if not request_nonce:
+            return Response(
+                {"detail": "request_nonce is required to prevent replay attacks."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        nonce_cache_key = f"{NONCE_CACHE_PREFIX}{request_nonce}"
+        if cache.get(nonce_cache_key):
+            return Response(
+                {"detail": "Replay detected — this request_nonce has already been used."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        # Mark this nonce as used (expires after 1 hour)
+        cache.set(nonce_cache_key, True, timeout=NONCE_EXPIRY_SECONDS)
 
         ciphertext_bytes = ciphertext_file.read()
         rel_path, computed_sha256 = _save_ciphertext(ciphertext_bytes)
